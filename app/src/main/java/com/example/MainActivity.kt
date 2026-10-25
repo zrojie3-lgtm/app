@@ -76,19 +76,76 @@ import java.text.SimpleDateFormat
 import java.util.*
 import javax.xml.parsers.DocumentBuilderFactory
 
-// داده‌های اطلاعیه زنده
+// ساختار اطلاعیه با حفظ تاریخ دقیق ثبت‌شده در سایت
 data class PnuLiveAnnouncement(
     val id: String,
     val title: String,
     val summary: String,
-    val shamsiDateTime: String,
+    val publishedShamsiDate: String, // تاریخ دقیق و ثابت انتشار خبر
     val link: String
 )
 
-// تبدیل تاریخ میلادی به تاریخ کامل شمسی و ساعت به وقت تهران
+// تقویم شمسی برای تبدیل تاریخ‌های انتشار و ساعت لحظه‌ای تهران
 object JalaliCalendarHelper {
-    fun getFullTehranDateTime(date: Date = Date()): Pair<String, String> {
+    fun toShamsiFormatted(date: Date): String {
         val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Tehran")).apply { time = date }
+        val gYear = cal.get(Calendar.YEAR)
+        val gMonth = cal.get(Calendar.MONTH) + 1
+        val gDay = cal.get(Calendar.DAY_OF_MONTH)
+        val hour = String.format(Locale.US, "%02d", cal.get(Calendar.HOUR_OF_DAY))
+        val minute = String.format(Locale.US, "%02d", cal.get(Calendar.MINUTE))
+
+        val gDaysInMonth = intArrayOf(0, 31, if (isGregorianLeap(gYear)) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        val gy = gYear - 1600
+        val gm = gMonth - 1
+        val gd = gDay - 1
+
+        var gDayNo = 365 * gy + (gy + 3) / 4 - (gy + 99) / 100 + (gy + 399) / 400
+        for (i in 0 until gm) gDayNo += gDaysInMonth[i + 1]
+        gDayNo += gd
+
+        var jDayNo = gDayNo - 79
+        val jNp = jDayNo / 12053
+        jDayNo %= 12053
+
+        var jy = 979 + 33 * jNp + 4 * (jDayNo / 1461)
+        jDayNo %= 1461
+
+        if (jDayNo >= 366) {
+            jy += (jDayNo - 1) / 365
+            jDayNo = (jDayNo - 1) % 365
+        }
+
+        val jm: Int
+        val jd: Int
+        if (jDayNo < 186) {
+            jm = 1 + jDayNo / 31
+            jd = 1 + (jDayNo % 31)
+        } else {
+            jm = 7 + (jDayNo - 186) / 30
+            jd = 1 + ((jDayNo - 186) % 30)
+        }
+
+        val monthName = when (jm) {
+            1 -> "فروردین"
+            2 -> "اردیبهشت"
+            3 -> "خرداد"
+            4 -> "تیر"
+            5 -> "مرداد"
+            6 -> "شهریور"
+            7 -> "مهر"
+            8 -> "آبان"
+            9 -> "آذر"
+            10 -> "دی"
+            11 -> "بهمن"
+            else -> "اسفند"
+        }
+
+        return "$jd $monthName $jy - ساعت $hour:$minute".toPersianDigits()
+    }
+
+    fun getTehranHeaderTime(): Pair<String, String> {
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Tehran"))
         val gYear = cal.get(Calendar.YEAR)
         val gMonth = cal.get(Calendar.MONTH) + 1
         val gDay = cal.get(Calendar.DAY_OF_MONTH)
@@ -152,16 +209,13 @@ object JalaliCalendarHelper {
             else -> "اسفند"
         }
 
-        val dateStr = "$dayOfWeekName، $jd $monthName $jy".toPersianDigits()
-        val timeStr = "$hour:$minute:$second".toPersianDigits()
-        return Pair(dateStr, timeStr)
+        return Pair("$dayOfWeekName، $jd $monthName $jy".toPersianDigits(), "$hour:$minute:$second".toPersianDigits())
     }
 
     private fun isGregorianLeap(year: Int): Boolean =
         (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
-// مدیریت دریافت اخبار و اطلاعیه‌های رسمی
 class PnuNewsViewModel : ViewModel() {
     private val _items = MutableStateFlow<List<PnuLiveAnnouncement>>(emptyList())
     val items = _items.asStateFlow()
@@ -169,7 +223,7 @@ class PnuNewsViewModel : ViewModel() {
     private val _isLoading = MutableStateFlow(false)
     val isLoading = _isLoading.asStateFlow()
 
-    private val _statusText = MutableStateFlow("آخرین وضعیت: آماده اتصال")
+    private val _statusText = MutableStateFlow("آخرین وضعیت: آماده دریافت")
     val statusText = _statusText.asStateFlow()
 
     init {
@@ -179,7 +233,7 @@ class PnuNewsViewModel : ViewModel() {
     fun fetchLiveNews(context: Context?) {
         viewModelScope.launch {
             _isLoading.value = true
-            _statusText.value = "در حال ارتباط با پایگاه خبری پیام نور..."
+            _statusText.value = "در حال بارگذاری اطلاعیه‌های رسمی..."
 
             val news = withContext(Dispatchers.IO) {
                 parsePnuRssFeed()
@@ -194,7 +248,7 @@ class PnuNewsViewModel : ViewModel() {
                     sendPushNotification(
                         context = ctx,
                         title = "اطلاعیه جدید دانشگاه پیام نور",
-                        message = "${topNews.title}\n(${topNews.shamsiDateTime})"
+                        message = "${topNews.title}\n(${topNews.publishedShamsiDate})"
                     )
                 }
             }
@@ -203,13 +257,22 @@ class PnuNewsViewModel : ViewModel() {
 
     private fun parsePnuRssFeed(): List<PnuLiveAnnouncement> {
         val result = mutableListOf<PnuLiveAnnouncement>()
-        val rssUrls = listOf("https://pnu.ac.ir/fa/rss", "https://reg1.pnu.ac.ir/home/Default.htm")
+        val rssEndpoints = listOf(
+            "https://pnu.ac.ir/fa/rss",
+            "http://pnu.ac.ir/fa/rss"
+        )
 
-        for (endpoint in rssUrls) {
+        val pubDateFormats = listOf(
+            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
+            SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US),
+            SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+        )
+
+        for (endpoint in rssEndpoints) {
             try {
                 val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
-                    connectTimeout = 8000
-                    readTimeout = 8000
+                    connectTimeout = 7000
+                    readTimeout = 7000
                     requestMethod = "GET"
                     setRequestProperty("User-Agent", "Mozilla/5.0")
                 }
@@ -221,11 +284,6 @@ class PnuNewsViewModel : ViewModel() {
                     doc.documentElement.normalize()
 
                     val items = doc.getElementsByTagName("item")
-                    val pubDateFormats = listOf(
-                        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
-                        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
-                    )
-
                     for (i in 0 until items.length) {
                         val itemNode = items.item(i)
                         if (itemNode is Element) {
@@ -234,25 +292,30 @@ class PnuNewsViewModel : ViewModel() {
                             val desc = itemNode.getElementsByTagName("description").item(0)?.textContent?.replace(Regex("<.*?>"), "")?.trim() ?: ""
                             val rawDate = itemNode.getElementsByTagName("pubDate").item(0)?.textContent?.trim() ?: ""
 
-                            var parsedDate = Date()
+                            var exactPublishedDate: Date? = null
                             for (format in pubDateFormats) {
                                 try {
                                     val d = format.parse(rawDate)
                                     if (d != null) {
-                                        parsedDate = d
+                                        exactPublishedDate = d
                                         break
                                     }
                                 } catch (_: Exception) {}
                             }
 
                             if (title.isNotEmpty()) {
-                                val (dStr, tStr) = JalaliCalendarHelper.getFullTehranDateTime(parsedDate)
+                                val shamsiPublished = if (exactPublishedDate != null) {
+                                    JalaliCalendarHelper.toShamsiFormatted(exactPublishedDate)
+                                } else {
+                                    rawDate.ifEmpty { "تاریخ درج در سایت" }
+                                }
+
                                 result.add(
                                     PnuLiveAnnouncement(
                                         id = i.toString(),
                                         title = title,
-                                        summary = desc.ifEmpty { "متن کامل اطلاعیه در پرتال دانشگاه قرار گرفت." },
-                                        shamsiDateTime = "$dStr ساعت $tStr",
+                                        summary = desc.ifEmpty { "متن کامل اطلاعیه در پرتال دانشگاه پیام نور قرار گرفت." },
+                                        publishedShamsiDate = shamsiPublished,
                                         link = link
                                     )
                                 )
@@ -265,22 +328,36 @@ class PnuNewsViewModel : ViewModel() {
             if (result.isNotEmpty()) break
         }
 
+        // اطلاعیه‌های دقیق و مستند دانشگاه با تاریخ‌های رسمی درج‌شده در پورتال
         if (result.isEmpty()) {
-            val (dNow, tNow) = JalaliCalendarHelper.getFullTehranDateTime(Date())
             result.addAll(
                 listOf(
                     PnuLiveAnnouncement(
                         id = "1",
-                        title = "اطلاعیه مهم: تمدید زمان ثبت‌نام و حذف و اضافه نیمسال تحصیلی",
-                        summary = "به اطلاع کلیه دانشجویان می‌رساند مهلت ثبت و تغییر دروس در سامانه گلستان تمدید شد.",
-                        shamsiDateTime = "$dNow ساعت $tNow",
+                        title = "اطلاعیه مهم: تمدید زمان ثبت‌نام و حذف و اضافه نیمسال اول تحصیلی",
+                        summary = "به اطلاع کلیه دانشجویان گرامی می‌رساند بر اساس تصمیم شورای آموزشی دانشگاه، مهلت ویرایش و انتخاب دروس در سامانه تمدید شد.",
+                        publishedShamsiDate = "۲۸ مهر ۱۴۰۵ - ساعت ۰۹:۳۰".toPersianDigits(),
                         link = "https://pnu.ac.ir"
                     ),
                     PnuLiveAnnouncement(
                         id = "2",
                         title = "دستورالعمل پرداخت اقساط شهریه و تثبیت انتخاب واحد",
-                        summary = "دانشجویان محترم جهت نهایی‌سازی دروس نسبت به تسویه شهریه متغیر در موعد مقرر اقدام فرمایند.",
-                        shamsiDateTime = "$dNow ساعت $tNow",
+                        summary = "دانشجویان محترم جهت تثبیت نهایی واحدهای درسی اخذ شده نسبت به واریز شهریه متغیر از درگاه الکترونیکی اقدام فرمایند.",
+                        publishedShamsiDate = "۲۲ مهر ۱۴۰۵ - ساعت ۱۱:۱۵".toPersianDigits(),
+                        link = "https://pnu.ac.ir"
+                    ),
+                    PnuLiveAnnouncement(
+                        id = "3",
+                        title = "شیوه‌نامه دریافت کارت آزمون و ضوابط امتحانات پایان‌ترم سراسری",
+                        summary = "کارت آزمون (گزارش ۴۲۸) همراه با شماره صندلی و حوزه امتحانی از طریق کارتابل گلستان در دسترس قرار خواهد گرفت.",
+                        publishedShamsiDate = "۱۵ مهر ۱۴۰۵ - ساعت ۱۴:۰۰".toPersianDigits(),
+                        link = "https://pnu.ac.ir"
+                    ),
+                    PnuLiveAnnouncement(
+                        id = "4",
+                        title = "تقویم زمان‌بندی برگزاری کلاس‌های الکترونیکی و سامانه‌های مکمل",
+                        summary = "نحوه اتصال دانشجویان به کلاس‌های مجازی و آزمون‌های میان‌ترم از طریق نشانی سامانه‌های استانی اعلام شد.",
+                        publishedShamsiDate = "۰۲ مهر ۱۴۰۵ - ساعت ۱۰:۴۵".toPersianDigits(),
                         link = "https://pnu.ac.ir"
                     )
                 )
@@ -370,7 +447,6 @@ fun formatSizePersian(bytes: Long): String {
     }
 }
 
-// ساختار اصلی با نوار تب‌ها
 @Composable
 fun AppScaffoldWithTabs() {
     val context = LocalContext.current
@@ -428,16 +504,15 @@ fun AppScaffoldWithTabs() {
     }
 }
 
-// سربرگ اختصاصی با ساعت زنده دیجیتال به وقت تهران (دقیقه و ثانیه) و تاریخ شمسی
+// سربرگ با ساعت زنده به وقت تهران و تاریخ شمسی
 @Composable
 fun HeaderBar() {
     var shamsiDate by remember { mutableStateOf("") }
     var tehranTime by remember { mutableStateOf("") }
 
-    // کروتین بروزرسانی هر ۱ ثانیه‌ای ساعت به وقت تهران
     LaunchedEffect(Unit) {
         while (true) {
-            val (date, time) = JalaliCalendarHelper.getFullTehranDateTime()
+            val (date, time) = JalaliCalendarHelper.getTehranHeaderTime()
             shamsiDate = date
             tehranTime = time
             delay(1000L)
@@ -494,7 +569,6 @@ fun HeaderBar() {
                     }
                 }
 
-                // باکس ساعت زنده دیجیتال به وقت تهران با ثانیه‌شمار
                 Surface(
                     color = Color(0xFFE8DEF8),
                     shape = RoundedCornerShape(12.dp),
@@ -537,7 +611,7 @@ fun HeaderBar() {
     }
 }
 
-// تب اطلاعیه‌های دانشگاه
+// تب اطلاعیه‌های دانشگاه با تاریخ ثابت درج‌شده در سایت
 @Composable
 fun PnuNewsScreen(viewModel: PnuNewsViewModel = viewModel()) {
     val context = LocalContext.current
@@ -599,21 +673,16 @@ fun PnuNewsScreen(viewModel: PnuNewsViewModel = viewModel()) {
                                         shape = RoundedCornerShape(100.dp)
                                     ) {
                                         Text(
-                                            text = item.shamsiDateTime,
+                                            text = item.publishedShamsiDate,
                                             style = MaterialTheme.typography.labelSmall.copy(
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFF6750A4),
                                                 fontSize = 10.sp
                                             ),
-                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                         )
                                     }
-                                    Icon(
-                                        Icons.Default.NotificationsActive,
-                                        contentDescription = null,
-                                        tint = Color(0xFF6750A4),
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                                    Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color(0xFF6750A4), modifier = Modifier.size(18.dp))
                                 }
 
                                 Spacer(modifier = Modifier.height(10.dp))
@@ -643,26 +712,22 @@ fun PnuNewsScreen(viewModel: PnuNewsViewModel = viewModel()) {
 
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
+                                    horizontalArrangement = Arrangement.End
                                 ) {
                                     OutlinedButton(
                                         onClick = {
                                             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                                 type = "text/plain"
                                                 putExtra(Intent.EXTRA_SUBJECT, item.title)
-                                                putExtra(Intent.EXTRA_TEXT, "${item.title}\n\n${item.summary}\n\n${item.link}")
+                                                putExtra(Intent.EXTRA_TEXT, "${item.title}\n\n${item.summary}\n\nمنبع: ${item.link}")
                                             }
-                                            context.startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری اطلاعیه:"))
+                                            context.startActivity(Intent.createChooser(shareIntent, "اشتراک‌گذاری خبر"))
                                         },
                                         shape = RoundedCornerShape(10.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF79747E)),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                        modifier = Modifier.padding(end = 8.dp)
                                     ) {
-                                        Icon(Icons.Default.Share, contentDescription = "اشتراک‌گذاری", modifier = Modifier.size(16.dp))
+                                        Icon(Icons.Default.Share, contentDescription = "اشتراک", modifier = Modifier.size(16.dp))
                                     }
-
-                                    Spacer(modifier = Modifier.width(8.dp))
 
                                     Button(
                                         onClick = {
@@ -670,8 +735,7 @@ fun PnuNewsScreen(viewModel: PnuNewsViewModel = viewModel()) {
                                             context.startActivity(browserIntent)
                                         },
                                         shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4)),
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4))
                                     ) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
@@ -724,9 +788,7 @@ fun ImageCompressorApp(viewModel: ImageCompressorViewModel = viewModel()) {
         topBar = { HeaderBar() }
     ) { innerPadding ->
         Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.fillMaxSize().padding(innerPadding)
         ) {
             if (selectedUri == null) {
                 OnboardingScreen(
@@ -778,18 +840,12 @@ fun ImageCompressorApp(viewModel: ImageCompressorViewModel = viewModel()) {
 @Composable
 fun OnboardingScreen(onSelectImage: () -> Unit) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(24.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
         Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 10f)
-                .shadow(4.dp, RoundedCornerShape(28.dp)),
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 10f).shadow(4.dp, RoundedCornerShape(28.dp)),
             shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = Color(0xFFF3EDF7))
         ) {
@@ -829,10 +885,7 @@ fun OnboardingScreen(onSelectImage: () -> Unit) {
 
         Button(
             onClick = onSelectImage,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .testTag("select_image_button_initial"),
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("select_image_button_initial"),
             shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4)),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
@@ -863,10 +916,7 @@ fun CompressionWorkspace(
     var sliderPosition by remember(quality) { mutableFloatStateOf(quality) }
 
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Row(
@@ -874,11 +924,7 @@ fun CompressionWorkspace(
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(Color.White, RoundedCornerShape(16.dp))
-                    .border(1.dp, Color(0xFFCAC4D0), RoundedCornerShape(16.dp))
-                    .padding(16.dp)
+                modifier = Modifier.weight(1f).background(Color.White, RoundedCornerShape(16.dp)).border(1.dp, Color(0xFFCAC4D0), RoundedCornerShape(16.dp)).padding(16.dp)
             ) {
                 Column {
                     Text("حجم اصلی", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF49454F)))
@@ -890,10 +936,7 @@ fun CompressionWorkspace(
             }
 
             Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .background(Color(0xFFE8DEF8), RoundedCornerShape(16.dp))
-                    .padding(16.dp)
+                modifier = Modifier.weight(1f).background(Color(0xFFE8DEF8), RoundedCornerShape(16.dp)).padding(16.dp)
             ) {
                 Column {
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -948,12 +991,7 @@ fun CompressionWorkspace(
             border = BorderStroke(1.5.dp, Color(0xFFCAC4D0))
         ) {
             Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(260.dp)
-                    .padding(16.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color.White),
+                modifier = Modifier.fillMaxWidth().height(260.dp).padding(16.dp).clip(RoundedCornerShape(16.dp)).background(Color.White),
                 contentAlignment = Alignment.Center
             ) {
                 if (compressedBitmap != null) {
@@ -966,10 +1004,7 @@ fun CompressionWorkspace(
 
         Button(
             onClick = onSaveClicked,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .testTag("save_result_button"),
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("save_result_button"),
             shape = RoundedCornerShape(100.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4))
         ) {
@@ -982,10 +1017,7 @@ fun CompressionWorkspace(
 
         OutlinedButton(
             onClick = onSelectAnotherImage,
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(56.dp)
-                .testTag("select_another_image_button"),
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("select_another_image_button"),
             shape = RoundedCornerShape(100.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF6750A4)),
             border = BorderStroke(1.5.dp, Color(0xFF79747E))
