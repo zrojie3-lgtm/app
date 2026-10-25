@@ -67,7 +67,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
-                // Ensure RTL Layout Direction is ALWAYS enforced for Persian experience
                 CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
                     Surface(
                         modifier = Modifier.fillMaxSize(),
@@ -81,15 +80,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// Convert English digits to beautiful Persian Digits
-fun String.toPersianDigits(): String {
-    var result = this
-    val persianDigits = listOf("۰", "۱", "۲", "۳", "۴", "۵", "۶", "۷", "۸", "۹")
-    for (i in 0..9) {
-        result = result.replace(i.toString(), persianDigits[i])
-    }
-    return result
-}
+// Convert English digits to Persian Digits optimized character-by-character
+fun String.toPersianDigits(): String = map { char ->
+    if (char in '0'..'9') char + 1728 else char
+}.joinToString("")
 
 // Format byte size to Persian MB/KB representation
 fun formatSizePersian(bytes: Long): String {
@@ -118,7 +112,6 @@ fun ImageCompressorApp(
     val isCompressing by viewModel.isCompressing.collectAsState()
     val saveStatus by viewModel.saveStatus.collectAsState()
 
-    // Activity picker launcher for media images
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickVisualMedia()
     ) { uri ->
@@ -127,7 +120,6 @@ fun ImageCompressorApp(
         }
     }
 
-    // Permission launcher for older Android versions (< Q / 29)
     val requestPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -141,7 +133,6 @@ fun ImageCompressorApp(
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         topBar = {
-            // High-polish custom header matching Persian navy theme
             HeaderBar()
         }
     ) { innerPadding ->
@@ -151,7 +142,6 @@ fun ImageCompressorApp(
                 .padding(innerPadding)
         ) {
             if (selectedUri == null) {
-                // Onboarding Layout when no photo represents yet
                 OnboardingScreen(
                     onSelectImage = {
                         imagePickerLauncher.launch(
@@ -160,7 +150,6 @@ fun ImageCompressorApp(
                     }
                 )
             } else {
-                // Interactive main sizing workspace
                 CompressionWorkspace(
                     viewModel = viewModel,
                     selectedUri = selectedUri!!,
@@ -177,7 +166,6 @@ fun ImageCompressorApp(
                         )
                     },
                     onSaveClicked = {
-                        // Check storage permission rules for older devices
                         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                             val checkPermission = ContextCompat.checkSelfPermission(
                                 context,
@@ -195,7 +183,6 @@ fun ImageCompressorApp(
                 )
             }
 
-            // High priority popup states (Success Dialogs / Error indicators)
             StatusOverlay(saveStatus = saveStatus, viewModel = viewModel, context = context)
         }
     }
@@ -207,8 +194,8 @@ fun HeaderBar() {
         modifier = Modifier
             .fillMaxWidth()
             .statusBarsPadding(),
-        tonalElevation = 0.dp, // Flat clean look
-        color = Color(0xFFFEF7FF) // Match Header background color exactly
+        tonalElevation = 0.dp,
+        color = Color(0xFFFEF7FF)
     ) {
         Column {
             Row(
@@ -223,7 +210,7 @@ fun HeaderBar() {
                         modifier = Modifier
                             .size(40.dp)
                             .clip(RoundedCornerShape(12.dp))
-                            .background(Color(0xFFE8DEF8)), // Beautiful light lavender button background
+                            .background(Color(0xFFE8DEF8)),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -253,7 +240,6 @@ fun HeaderBar() {
                     }
                 }
                 
-                // 100% Offline Badge in modern Material capsule
                 Surface(
                     color = Color(0xFFE8DEF8),
                     shape = RoundedCornerShape(100.dp)
@@ -264,7 +250,7 @@ fun HeaderBar() {
                     ) {
                         Icon(
                             imageVector = Icons.Default.CloudOff,
-                            contentDescription = "آفلاین CD",
+                            contentDescription = "آفلاین",
                             tint = Color(0xFF6750A4),
                             modifier = Modifier.size(13.dp)
                         )
@@ -279,8 +265,8 @@ fun HeaderBar() {
                     }
                 }
             }
-            Divider(
-                color = Color(0xFFCAC4D0), // Match High Density border color Exactly
+            HorizontalDivider(
+                color = Color(0xFFCAC4D0),
                 thickness = 1.dp
             )
         }
@@ -297,7 +283,6 @@ fun OnboardingScreen(onSelectImage: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        // App Hero Art Banner
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -346,7 +331,7 @@ fun OnboardingScreen(onSelectImage: () -> Unit) {
                 .fillMaxWidth()
                 .height(56.dp)
                 .testTag("select_image_button_initial"),
-            shape = RoundedCornerShape(28.dp), // Fully rounded pill shape for modern M3
+            shape = RoundedCornerShape(28.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF6750A4)
             ),
@@ -389,6 +374,8 @@ fun CompressionWorkspace(
     onSelectAnotherImage: () -> Unit,
     onSaveClicked: () -> Unit
 ) {
+    var sliderPosition by remember(quality) { mutableFloatStateOf(quality) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -396,13 +383,11 @@ fun CompressionWorkspace(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        
-        // 1. Comparison Metrics Grid
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Box A: Original metrics (White background, Outline variant border, rounded 16.dp)
+            // Box A: Original metrics
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -440,7 +425,7 @@ fun CompressionWorkspace(
                 }
             }
 
-            // Box B: Optimized metrics (Lavender background, rounded 16.dp)
+            // Box B: Optimized metrics
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -460,7 +445,6 @@ fun CompressionWorkspace(
                                 fontWeight = FontWeight.Bold
                             )
                         )
-                        // Compression Ratio Badge
                         if (originalSize > 0 && compressedSize > 0) {
                             val ratio = (1.0f - (compressedSize.toFloat() / originalSize.toFloat())) * 100
                             if (ratio > 0) {
@@ -491,8 +475,9 @@ fun CompressionWorkspace(
                         )
                     )
                     Spacer(modifier = Modifier.height(4.dp))
+                    val savedBytes = if (originalSize > compressedSize) originalSize - compressedSize else 0L
                     Text(
-                        text = "کیفیت JPEG: ${(quality * 100).toInt()}٪".toPersianDigits(),
+                        text = "کاهش حجم: ${formatSizePersian(savedBytes)}",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = Color(0xFF6750A4).copy(alpha = 0.8f),
                             fontSize = 10.sp
@@ -504,7 +489,7 @@ fun CompressionWorkspace(
             }
         }
 
-        // 2. High-Fidelity Settings Slider Card (Corners: 28.dp, Color: #F7F2FA)
+        // Settings Slider Card
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
@@ -533,13 +518,12 @@ fun CompressionWorkspace(
                         )
                     }
 
-                    // Percentage Badge (Base color #E8DEF8, text #6750A4)
                     Surface(
                         color = Color(0xFFE8DEF8),
                         shape = RoundedCornerShape(100.dp)
                     ) {
                         Text(
-                            text = "${(quality * 100).toInt()}٪".toPersianDigits(),
+                            text = "${(sliderPosition * 100).toInt()}٪".toPersianDigits(),
                             style = MaterialTheme.typography.bodyMedium.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF6750A4)
@@ -551,10 +535,10 @@ fun CompressionWorkspace(
 
                 Spacer(modifier = Modifier.height(18.dp))
 
-                // Custom slider matching colors in High Density Spec
                 Slider(
-                    value = quality,
-                    onValueChange = { viewModel.setQuality(it) },
+                    value = sliderPosition,
+                    onValueChange = { sliderPosition = it },
+                    onValueChangeFinished = { viewModel.setQuality(sliderPosition) },
                     valueRange = 0.05f..1.0f,
                     steps = 18,
                     colors = SliderDefaults.colors(
@@ -572,14 +556,14 @@ fun CompressionWorkspace(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "بیشترین حجم",
+                        text = "بیشترین فشرده‌سازی",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = Color(0xFF49454F),
                             fontSize = 11.sp
                         )
                     )
                     Text(
-                        text = "کمترین حجم",
+                        text = "بالاترین کیفیت",
                         style = MaterialTheme.typography.bodySmall.copy(
                             color = Color(0xFF49454F),
                             fontSize = 11.sp
@@ -589,7 +573,7 @@ fun CompressionWorkspace(
             }
         }
 
-        // 3. Image Preview Area (Corners: 28.dp, Background: #F3EDF7, Outline Variant Border: 2.dp)
+        // Image Preview Area
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(28.dp),
@@ -644,7 +628,6 @@ fun CompressionWorkspace(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                // Fitted preview box
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -674,14 +657,14 @@ fun CompressionWorkspace(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // 4. Action Section (Pill style buttons rounded: 100.dp)
+        // Action Buttons
         Button(
             onClick = onSaveClicked,
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp)
                 .testTag("save_result_button"),
-            shape = RoundedCornerShape(100.dp), // Complete M3 rounded pill style
+            shape = RoundedCornerShape(100.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = Color(0xFF6750A4)
             ),
@@ -714,7 +697,7 @@ fun CompressionWorkspace(
                 .fillMaxWidth()
                 .height(56.dp)
                 .testTag("select_another_image_button"),
-            shape = RoundedCornerShape(100.dp), // Pill style matching primary
+            shape = RoundedCornerShape(100.dp),
             colors = ButtonDefaults.outlinedButtonColors(
                 contentColor = Color(0xFF6750A4)
             ),
@@ -852,12 +835,10 @@ fun StatusOverlay(
 
                         Spacer(modifier = Modifier.height(24.dp))
 
-                        // Sharing Row Actions
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
-                            // Close Sizing workspace on done
                             Button(
                                 onClick = { viewModel.selectImage(null) },
                                 shape = RoundedCornerShape(12.dp),
@@ -875,7 +856,6 @@ fun StatusOverlay(
                                 )
                             }
 
-                            // Share image using Android content scheme
                             OutlinedButton(
                                 onClick = {
                                     val intent = Intent(Intent.ACTION_SEND).apply {
