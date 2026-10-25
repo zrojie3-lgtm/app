@@ -1,0 +1,6 @@
+{
+  "name": "Payam Noor",
+  "description": "Custom Persian image utility for compressing, sizing, and managing images offline with RTL support.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
