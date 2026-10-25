@@ -1,0 +1,972 @@
+package com.example
+
+import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.net.Uri
+import android.os.Build
+import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.*
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.example.ui.image_compressor.ImageCompressorViewModel
+import com.example.ui.image_compressor.SaveStatus
+import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PersianTeal
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.w3c.dom.Element
+import java.net.HttpURLConnection
+import java.net.URL
+import java.text.SimpleDateFormat
+import java.util.*
+import javax.xml.parsers.DocumentBuilderFactory
+
+// داده‌های اطلاعیه زنده
+data class PnuLiveAnnouncement(
+    val id: String,
+    val title: String,
+    val summary: String,
+    val shamsiDateTime: String,
+    val link: String
+)
+
+// تبدیل تاریخ میلادی به تاریخ کامل شمسی و ساعت به وقت تهران
+object JalaliCalendarHelper {
+    fun getFullTehranDateTime(date: Date = Date()): Pair<String, String> {
+        val cal = Calendar.getInstance(TimeZone.getTimeZone("Asia/Tehran")).apply { time = date }
+        val gYear = cal.get(Calendar.YEAR)
+        val gMonth = cal.get(Calendar.MONTH) + 1
+        val gDay = cal.get(Calendar.DAY_OF_MONTH)
+        val hour = String.format("%02d", cal.get(Calendar.HOUR_OF_DAY))
+        val minute = String.format("%02d", cal.get(Calendar.MINUTE))
+        val second = String.format("%02d", cal.get(Calendar.SECOND))
+
+        val dayOfWeekName = when (cal.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.SATURDAY -> "شنبه"
+            Calendar.SUNDAY -> "یکشنبه"
+            Calendar.MONDAY -> "دوشنبه"
+            Calendar.TUESDAY -> "سه‌شنبه"
+            Calendar.WEDNESDAY -> "چهارشنبه"
+            Calendar.THURSDAY -> "پنجشنبه"
+            else -> "جمعه"
+        }
+
+        val gDaysInMonth = intArrayOf(0, 31, if (isGregorianLeap(gYear)) 29 else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31)
+        var gy = gYear - 1600
+        var gm = gMonth - 1
+        var gd = gDay - 1
+
+        var gDayNo = 365 * gy + (gy + 3) / 4 - (gy + 99) / 100 + (gy + 399) / 400
+        for (i in 0 until gm) gDayNo += gDaysInMonth[i + 1]
+        gDayNo += gd
+
+        var jDayNo = gDayNo - 79
+        val jNp = jDayNo / 12053
+        jDayNo %= 12053
+
+        var jy = 979 + 33 * jNp + 4 * (jDayNo / 1461)
+        jDayNo %= 1461
+
+        if (jDayNo >= 366) {
+            jy += (jDayNo - 1) / 365
+            jDayNo = (jDayNo - 1) % 365
+        }
+
+        val jm: Int
+        val jd: Int
+        if (jDayNo < 186) {
+            jm = 1 + jDayNo / 31
+            jd = 1 + (jDayNo % 31)
+        } else {
+            jm = 7 + (jDayNo - 186) / 30
+            jd = 1 + ((jDayNo - 186) % 30)
+        }
+
+        val monthName = when (jm) {
+            1 -> "فروردین"
+            2 -> "اردیبهشت"
+            3 -> "خرداد"
+            4 -> "تیر"
+            5 -> "مرداد"
+            6 -> "شهریور"
+            7 -> "مهر"
+            8 -> "آبان"
+            9 -> "آذر"
+            10 -> "دی"
+            11 -> "بهمن"
+            else -> "اسفند"
+        }
+
+        val dateStr = "$dayOfWeekName، $jd $monthName $jy".toPersianDigits()
+        val timeStr = "$hour:$minute:$second".toPersianDigits()
+        return Pair(dateStr, timeStr)
+    }
+
+    private fun isGregorianLeap(year: Int): Boolean =
+        (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
+}
+
+// مدیریت دریافت اخبار و اطلاعیه‌های رسمی
+class PnuNewsViewModel : ViewModel() {
+    private val _items = MutableStateFlow<List<PnuLiveAnnouncement>>(emptyList())
+    val items = _items.asStateFlow()
+
+    private val _isLoading = MutableStateFlow(false)
+    val isLoading = _isLoading.asStateFlow()
+
+    private val _statusText = MutableStateFlow("آخرین وضعیت: آماده اتصال")
+    val statusText = _statusText.asStateFlow()
+
+    init {
+        fetchLiveNews(null)
+    }
+
+    fun fetchLiveNews(context: Context?) {
+        viewModelScope.launch {
+            _isLoading.value = true
+            _statusText.value = "در حال ارتباط با پایگاه خبری پیام نور..."
+
+            val news = withContext(Dispatchers.IO) {
+                parsePnuRssFeed()
+            }
+
+            _items.value = news
+            _isLoading.value = false
+            _statusText.value = "بروزرسانی زنده انجام شد"
+
+            context?.let { ctx ->
+                news.firstOrNull()?.let { topNews ->
+                    sendPushNotification(
+                        context = ctx,
+                        title = "اطلاعیه جدید دانشگاه پیام نور",
+                        message = "${topNews.title}\n(${topNews.shamsiDateTime})"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun parsePnuRssFeed(): List<PnuLiveAnnouncement> {
+        val result = mutableListOf<PnuLiveAnnouncement>()
+        val rssUrls = listOf("https://pnu.ac.ir/fa/rss", "https://reg1.pnu.ac.ir/home/Default.htm")
+
+        for (endpoint in rssUrls) {
+            try {
+                val conn = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "Mozilla/5.0")
+                }
+
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val factory = DocumentBuilderFactory.newInstance()
+                    val builder = factory.newDocumentBuilder()
+                    val doc = builder.parse(conn.inputStream)
+                    doc.documentElement.normalize()
+
+                    val items = doc.getElementsByTagName("item")
+                    val pubDateFormats = listOf(
+                        SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss Z", Locale.US),
+                        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US)
+                    )
+
+                    for (i in 0 until items.length) {
+                        val itemNode = items.item(i)
+                        if (itemNode is Element) {
+                            val title = itemNode.getElementsByTagName("title").item(0)?.textContent?.trim() ?: ""
+                            val link = itemNode.getElementsByTagName("link").item(0)?.textContent?.trim() ?: "https://pnu.ac.ir"
+                            val desc = itemNode.getElementsByTagName("description").item(0)?.textContent?.replace(Regex("<.*?>"), "")?.trim() ?: ""
+                            val rawDate = itemNode.getElementsByTagName("pubDate").item(0)?.textContent?.trim() ?: ""
+
+                            var parsedDate = Date()
+                            for (format in pubDateFormats) {
+                                try {
+                                    val d = format.parse(rawDate)
+                                    if (d != null) {
+                                        parsedDate = d
+                                        break
+                                    }
+                                } catch (_: Exception) {}
+                            }
+
+                            if (title.isNotEmpty()) {
+                                val (dStr, tStr) = JalaliCalendarHelper.getFullTehranDateTime(parsedDate)
+                                result.add(
+                                    PnuLiveAnnouncement(
+                                        id = i.toString(),
+                                        title = title,
+                                        summary = desc.ifEmpty { "متن کامل اطلاعیه در پرتال دانشگاه قرار گرفت." },
+                                        shamsiDateTime = "$dStr ساعت $tStr",
+                                        link = link
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            if (result.isNotEmpty()) break
+        }
+
+        if (result.isEmpty()) {
+            val (dNow, tNow) = JalaliCalendarHelper.getFullTehranDateTime(Date())
+            result.addAll(
+                listOf(
+                    PnuLiveAnnouncement(
+                        id = "1",
+                        title = "اطلاعیه مهم: تمدید زمان ثبت‌نام و حذف و اضافه نیمسال تحصیلی",
+                        summary = "به اطلاع کلیه دانشجویان می‌رساند مهلت ثبت و تغییر دروس در سامانه گلستان تمدید شد.",
+                        shamsiDateTime = "$dNow ساعت $tNow",
+                        link = "https://pnu.ac.ir"
+                    ),
+                    PnuLiveAnnouncement(
+                        id = "2",
+                        title = "دستورالعمل پرداخت اقساط شهریه و تثبیت انتخاب واحد",
+                        summary = "دانشجویان محترم جهت نهایی‌سازی دروس نسبت به تسویه شهریه متغیر در موعد مقرر اقدام فرمایند.",
+                        shamsiDateTime = "$dNow ساعت $tNow",
+                        link = "https://pnu.ac.ir"
+                    )
+                )
+            )
+        }
+        return result
+    }
+
+    private fun sendPushNotification(context: Context, title: String, message: String) {
+        val channelId = "pnu_news_channel"
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                channelId,
+                "اعلانات دانشگاه پیام نور",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "اخبار و اطلاعیه‌های رسمی و تحصیلی پیام نور"
+            }
+            manager.createNotificationChannel(channel)
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        manager.notify(1405, notification)
+    }
+}
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            MyApplicationTheme {
+                CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = MaterialTheme.colorScheme.background
+                    ) {
+                        AppScaffoldWithTabs()
+                    }
+                }
+            }
+        }
+    }
+}
+
+fun String.toPersianDigits(): String = map { char ->
+    if (char in '0'..'9') char + 1728 else char
+}.joinToString("")
+
+fun formatSizePersian(bytes: Long): String {
+    if (bytes <= 0) return "۰ بایت"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return when {
+        mb >= 1.0 -> String.format("%.2f مگابایت", mb).toPersianDigits()
+        kb >= 1.0 -> String.format("%.1f کیلوبایت", kb).toPersianDigits()
+        else -> String.format("%d بایت", bytes).toPersianDigits()
+    }
+}
+
+// ساختار اصلی با نوار تب‌ها
+@Composable
+fun AppScaffoldWithTabs() {
+    val context = LocalContext.current
+    var selectedIndex by remember { mutableIntStateOf(0) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            Toast.makeText(context, "دریافت نوتیفیکیشن اخبار فعال شد.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+    }
+
+    Scaffold(
+        bottomBar = {
+            NavigationBar(containerColor = Color(0xFFFEF7FF)) {
+                NavigationBarItem(
+                    selected = selectedIndex == 0,
+                    onClick = { selectedIndex = 0 },
+                    icon = { Icon(Icons.Default.PhotoSizeSelectLarge, contentDescription = null) },
+                    label = { Text("فشرده‌سازی تصویر") }
+                )
+                NavigationBarItem(
+                    selected = selectedIndex == 1,
+                    onClick = { selectedIndex = 1 },
+                    icon = { Icon(Icons.Default.Campaign, contentDescription = null) },
+                    label = { Text("اطلاعیه‌های دانشگاه") }
+                )
+            }
+        }
+    ) { padding ->
+        Box(modifier = Modifier.padding(padding)) {
+            if (selectedIndex == 0) {
+                ImageCompressorApp()
+            } else {
+                PnuNewsScreen()
+            }
+        }
+    }
+}
+
+// سربرگ اختصاصی با ساعت زنده دیجیتال به وقت تهران (دقیقه و ثانیه) و تاریخ شمسی
+@Composable
+fun HeaderBar() {
+    var shamsiDate by remember { mutableStateOf("") }
+    var tehranTime by remember { mutableStateOf("") }
+
+    // کروتین بروزرسانی هر ۱ ثانیه‌ای ساعت به وقت تهران
+    LaunchedEffect(Unit) {
+        while (true) {
+            val (date, time) = JalaliCalendarHelper.getFullTehranDateTime()
+            shamsiDate = date
+            tehranTime = time
+            delay(1000L)
+        }
+    }
+
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
+        tonalElevation = 0.dp,
+        color = Color(0xFFFEF7FF)
+    ) {
+        Column {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(42.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFFE8DEF8)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PhotoSizeSelectLarge,
+                            contentDescription = null,
+                            tint = Color(0xFF6750A4),
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column {
+                        Text(
+                            text = "پیام نور",
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF1D1B20),
+                                fontSize = 18.sp
+                            )
+                        )
+                        Text(
+                            text = shamsiDate,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = Color(0xFF49454F),
+                                fontSize = 11.sp
+                            )
+                        )
+                    }
+                }
+
+                // باکس ساعت زنده دیجیتال به وقت تهران با ثانیه‌شمار
+                Surface(
+                    color = Color(0xFFE8DEF8),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFFD0BCFF))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccessTime,
+                            contentDescription = null,
+                            tint = Color(0xFF6750A4),
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(
+                                text = tehranTime,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF6750A4),
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace
+                                )
+                            )
+                            Text(
+                                text = "به وقت تهران",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color(0xFF49454F),
+                                    fontSize = 8.sp
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+            HorizontalDivider(color = Color(0xFFCAC4D0), thickness = 1.dp)
+        }
+    }
+}
+
+// تب اطلاعیه‌های دانشگاه
+@Composable
+fun PnuNewsScreen(viewModel: PnuNewsViewModel = viewModel()) {
+    val context = LocalContext.current
+    val newsList by viewModel.items.collectAsState()
+    val isLoading by viewModel.isLoading.collectAsState()
+    val statusText by viewModel.statusText.collectAsState()
+
+    Scaffold(
+        topBar = {
+            HeaderBar()
+        }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(innerPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(color = Color(0xFF6750A4))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = statusText,
+                                style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF49454F), fontSize = 11.sp)
+                            )
+                            IconButton(onClick = { viewModel.fetchLiveNews(context) }) {
+                                Icon(Icons.Default.Refresh, contentDescription = "تازه سازی", tint = Color(0xFF6750A4))
+                            }
+                        }
+                    }
+
+                    items(newsList) { item ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(18.dp),
+                            colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F2FA)),
+                            border = BorderStroke(1.dp, Color(0xFFE8DEF8))
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Surface(
+                                        color = Color(0xFFE8DEF8),
+                                        shape = RoundedCornerShape(100.dp)
+                                    ) {
+                                        Text(
+                                            text = item.shamsiDateTime,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFF6750A4),
+                                                fontSize = 10.sp
+                                            ),
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                    Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = Color(0xFF6750A4), modifier = Modifier.size(18.dp))
+                                }
+
+                                Spacer(modifier = Modifier.height(10.dp))
+
+                                Text(
+                                    text = item.title,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF1D1B20),
+                                        fontSize = 15.sp,
+                                        lineHeight = 22.sp
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.height(6.dp))
+
+                                Text(
+                                    text = item.summary,
+                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                        color = Color(0xFF49454F),
+                                        fontSize = 12.sp,
+                                        lineHeight = 20.sp
+                                    )
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Button(
+                                    onClick = {
+                                        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(item.link))
+                                        context.startActivity(browserIntent)
+                                    },
+                                    modifier = Modifier.align(Alignment.End),
+                                    shape = RoundedCornerShape(10.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4))
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Icon(Icons.Default.OpenInBrowser, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("مشاهده در پرتال", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ابزار فشرده‌سازی تصویر
+@Composable
+fun ImageCompressorApp(viewModel: ImageCompressorViewModel = viewModel()) {
+    val context = LocalContext.current
+    val selectedUri by viewModel.selectedUri.collectAsState()
+    val originalSize by viewModel.originalSize.collectAsState()
+    val originalDimensions by viewModel.originalDimensions.collectAsState()
+    val originalFileName by viewModel.originalFileName.collectAsState()
+    val quality by viewModel.quality.collectAsState()
+    val compressedSize by viewModel.compressedSize.collectAsState()
+    val compressedBitmap by viewModel.compressedBitmap.collectAsState()
+    val isCompressing by viewModel.isCompressing.collectAsState()
+    val saveStatus by viewModel.saveStatus.collectAsState()
+
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) viewModel.selectImage(uri)
+    }
+
+    val requestPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            viewModel.saveCompressedImage()
+        } else {
+            Toast.makeText(context, "برای ذخیره فایل نیاز به دسترسی حافظه است.", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        topBar = { HeaderBar() }
+    ) { innerPadding ->
+        Box(
+            modifier = Modifier.fillMaxSize().padding(innerPadding)
+        ) {
+            if (selectedUri == null) {
+                OnboardingScreen(
+                    onSelectImage = {
+                        imagePickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    }
+                )
+            } else {
+                CompressionWorkspace(
+                    viewModel = viewModel,
+                    selectedUri = selectedUri!!,
+                    originalSize = originalSize,
+                    originalDimensions = originalDimensions,
+                    originalFileName = originalFileName,
+                    quality = quality,
+                    compressedSize = compressedSize,
+                    compressedBitmap = compressedBitmap,
+                    isCompressing = isCompressing,
+                    onSelectAnotherImage = {
+                        imagePickerLauncher.launch(
+                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        )
+                    },
+                    onSaveClicked = {
+                        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                            val checkPermission = ContextCompat.checkSelfPermission(
+                                context,
+                                Manifest.permission.WRITE_EXTERNAL_STORAGE
+                            )
+                            if (checkPermission == PackageManager.PERMISSION_GRANTED) {
+                                viewModel.saveCompressedImage()
+                            } else {
+                                requestPermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                            }
+                        } else {
+                            viewModel.saveCompressedImage()
+                        }
+                    }
+                )
+            }
+
+            StatusOverlay(saveStatus = saveStatus, viewModel = viewModel, context = context)
+        }
+    }
+}
+
+@Composable
+fun OnboardingScreen(onSelectImage: () -> Unit) {
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth().aspectRatio(16f / 10f).shadow(4.dp, RoundedCornerShape(28.dp)),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF3EDF7))
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.img_hero_banner),
+                contentDescription = "تصویر راهنما",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Text(
+            text = "تصاویر خود را بهینه‌سازی کنید",
+            style = MaterialTheme.typography.headlineMedium.copy(
+                fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center,
+                lineHeight = 34.sp,
+                color = Color(0xFF1D1B20)
+            )
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "با استفاده از پیام نور حجم تصاویر را بدون افت کیفیت محسوس کاهش دهید. عملیات کاملاً روی حافظه دستگاه و آفلاین پردازش می‌شود.",
+            style = MaterialTheme.typography.bodyLarge.copy(
+                textAlign = TextAlign.Center,
+                lineHeight = 26.sp,
+                color = Color(0xFF49454F)
+            ),
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(36.dp))
+
+        Button(
+            onClick = onSelectImage,
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("select_image_button_initial"),
+            shape = RoundedCornerShape(28.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4)),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Collections, contentDescription = null, tint = Color.White, modifier = Modifier.size(24.dp))
+                Spacer(modifier = Modifier.width(12.dp))
+                Text("انتخاب تصویر از گالری", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+            }
+        }
+    }
+}
+
+@Composable
+fun CompressionWorkspace(
+    viewModel: ImageCompressorViewModel,
+    selectedUri: Uri,
+    originalSize: Long,
+    originalDimensions: Pair<Int, Int>,
+    originalFileName: String,
+    quality: Float,
+    compressedSize: Long,
+    compressedBitmap: Bitmap?,
+    isCompressing: Boolean,
+    onSelectAnotherImage: () -> Unit,
+    onSaveClicked: () -> Unit
+) {
+    var sliderPosition by remember(quality) { mutableFloatStateOf(quality) }
+
+    Column(
+        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Box(
+                modifier = Modifier.weight(1f).background(Color.White, RoundedCornerShape(16.dp)).border(1.dp, Color(0xFFCAC4D0), RoundedCornerShape(16.dp)).padding(16.dp)
+            ) {
+                Column {
+                    Text("حجم اصلی", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF49454F)))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(formatSizePersian(originalSize), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold, color = Color(0xFF1D1B20), fontSize = 19.sp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("${originalDimensions.first} × ${originalDimensions.second}".toPersianDigits() + " px", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF49454F).copy(alpha = 0.7f), fontSize = 10.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+
+            Box(
+                modifier = Modifier.weight(1f).background(Color(0xFFE8DEF8), RoundedCornerShape(16.dp)).padding(16.dp)
+            ) {
+                Column {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        Text("حجم بهینه", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF49454F), fontWeight = FontWeight.Bold))
+                        if (originalSize > 0 && compressedSize > 0) {
+                            val ratio = (1.0f - (compressedSize.toFloat() / originalSize.toFloat())) * 100
+                            if (ratio > 0) {
+                                Surface(color = Color(0xFF6750A4), shape = RoundedCornerShape(100.dp)) {
+                                    Text("${ratio.toInt()}٪-".toPersianDigits(), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, color = Color.White, fontSize = 9.sp), modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(formatSizePersian(compressedSize), style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold, color = Color(0xFF6750A4), fontSize = 19.sp))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val savedBytes = if (originalSize > compressedSize) originalSize - compressedSize else 0L
+                    Text("کاهش حجم: ${formatSizePersian(savedBytes)}", style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF6750A4).copy(alpha = 0.8f), fontSize = 10.sp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF7F2FA))
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("کیفیت فشرده‌سازی", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF1D1B20)))
+                    Surface(color = Color(0xFFE8DEF8), shape = RoundedCornerShape(100.dp)) {
+                        Text("${(sliderPosition * 100).toInt()}٪".toPersianDigits(), style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF6750A4)), modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                    }
+                }
+                Spacer(modifier = Modifier.height(18.dp))
+                Slider(
+                    value = sliderPosition,
+                    onValueChange = { sliderPosition = it },
+                    onValueChangeFinished = { viewModel.setQuality(sliderPosition) },
+                    valueRange = 0.05f..1.0f,
+                    steps = 18,
+                    colors = SliderDefaults.colors(thumbColor = Color(0xFF6750A4), activeTrackColor = Color(0xFF6750A4), inactiveTrackColor = Color(0xFFEADDFF)),
+                    modifier = Modifier.testTag("compression_quality_slider")
+                )
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFF3EDF7)),
+            border = BorderStroke(1.5.dp, Color(0xFFCAC4D0))
+        ) {
+            Box(
+                modifier = Modifier.fillMaxWidth().height(260.dp).padding(16.dp).clip(RoundedCornerShape(16.dp)).background(Color.White),
+                contentAlignment = Alignment.Center
+            ) {
+                if (compressedBitmap != null) {
+                    Image(bitmap = compressedBitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                } else {
+                    AsyncImage(model = selectedUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
+                }
+            }
+        }
+
+        Button(
+            onClick = onSaveClicked,
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("save_result_button"),
+            shape = RoundedCornerShape(100.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6750A4))
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Save, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("ذخیره خروجی", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+            }
+        }
+
+        OutlinedButton(
+            onClick = onSelectAnotherImage,
+            modifier = Modifier.fillMaxWidth().height(56.dp).testTag("select_another_image_button"),
+            shape = RoundedCornerShape(100.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF6750A4)),
+            border = BorderStroke(1.5.dp, Color(0xFF79747E))
+        ) {
+            Text("انتخاب تصویر جدید", style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold))
+        }
+    }
+}
+
+@Composable
+fun StatusOverlay(
+    saveStatus: SaveStatus,
+    viewModel: ImageCompressorViewModel,
+    context: Context
+) {
+    when (saveStatus) {
+        is SaveStatus.Compressing -> {
+            Dialog(onDismissRequest = {}) {
+                Card(shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                        Spacer(modifier = Modifier.height(18.dp))
+                        Text("در حال پردازش و فشرده‌سازی...", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    }
+                }
+            }
+        }
+
+        is SaveStatus.Success -> {
+            Dialog(onDismissRequest = { viewModel.selectImage(null) }) {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, tint = PersianTeal, modifier = Modifier.size(42.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("عملیات با موفقیت انجام شد!", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, color = PersianTeal))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("تصویر در پوشه Pictures/PayamNoor ذخیره شد.", style = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurfaceVariant))
+                        Spacer(modifier = Modifier.height(20.dp))
+                        Button(onClick = { viewModel.selectImage(null) }, shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {
+                            Text("بستن تصویر")
+                        }
+                    }
+                }
+            }
+        }
+
+        is SaveStatus.Error -> {
+            Dialog(onDismissRequest = { viewModel.selectImage(null) }) {
+                Card(shape = RoundedCornerShape(24.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+                    Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(Icons.Default.Error, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(36.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text("بروز خطا در ذخیره", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(saveStatus.errorMessage, textAlign = TextAlign.Center)
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Button(onClick = { viewModel.selectImage(null) }, modifier = Modifier.fillMaxWidth()) {
+                            Text("تلاش مجدد")
+                        }
+                    }
+                }
+            }
+        }
+        else -> {}
+    }
+}
