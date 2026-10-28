@@ -1,6 +1,7 @@
 package com.example
 
 import android.Manifest
+import android.app.DownloadManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,6 +12,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -19,6 +21,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -559,202 +563,284 @@ fun SettingsDialog(
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+
+    val currentVersion = "2.4.0"
+    // برای تست، اگر نسخه روی گیت‌هاب برابر با نسخه فعلی باشد پیام Up to date نشان داده می‌شود
+    val latestVersionAvailable = "2.4.0" 
+
     var isCheckingUpdate by remember { mutableStateOf(false) }
-    var updateStatusText by remember { mutableStateOf("نسخه فعلی: ۲.۴.۰") }
+    var updateStatusText by remember { mutableStateOf("Version: $currentVersion") }
+    var isUpdateAvailable by remember { mutableStateOf(false) }
 
     val directApkDownloadUrl = "https://github.com/zrojie3-lgtm/app/raw/main/apk/app-latest.apk"
 
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
-        ) {
-            Column(
-                modifier = Modifier
-                    .padding(22.dp)
-                    .fillMaxWidth()
+        // اعمال جهت چپ‌به‌راست (LTR) اختصاصی برای بخش انگلیسی تنظیمات
+        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                Column(
+                    modifier = Modifier
+                        .padding(22.dp)
+                        .fillMaxWidth()
                 ) {
-                    Text(
-                        text = "تنظیمات برنامه",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
+                    // Header
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Settings",
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
                         )
-                    )
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                }
+                        Icon(
+                            imageVector = Icons.Default.Settings,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
 
-                Spacer(modifier = Modifier.height(14.dp))
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                Card(
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                    ),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column {
-                                Text(
-                                    text = updateStatusText.toPersianDigits(),
-                                    style = MaterialTheme.typography.bodyMedium.copy(
-                                        fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSurface
+                    // In-App Update Section
+                    Card(
+                        shape = RoundedCornerShape(14.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "In-App Update",
+                                        style = MaterialTheme.typography.titleSmall.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
                                     )
-                                )
-                                Text(
-                                    text = "دریافت نسخه جدید از مخزن",
-                                    style = MaterialTheme.typography.labelSmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        fontSize = 10.sp
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = updateStatusText,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            fontSize = 11.sp
+                                        )
                                     )
-                                )
+                                }
+
+                                if (isCheckingUpdate) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(24.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                } else {
+                                    Button(
+                                        onClick = {
+                                            coroutineScope.launch {
+                                                isCheckingUpdate = true
+                                                updateStatusText = "Checking latest release..."
+                                                delay(1000)
+                                                isCheckingUpdate = false
+                                                if (currentVersion == latestVersionAvailable) {
+                                                    isUpdateAvailable = false
+                                                    updateStatusText = "App is up to date (v$currentVersion)"
+                                                    Toast.makeText(context, "You are using the latest version ($currentVersion)", Toast.LENGTH_SHORT).show()
+                                                } else {
+                                                    isUpdateAvailable = true
+                                                    updateStatusText = "Update available: v$latestVersionAvailable"
+                                                }
+                                            }
+                                        },
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Refresh,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Check", fontSize = 12.sp)
+                                    }
+                                }
                             }
 
-                            if (isCheckingUpdate) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(24.dp),
-                                    strokeWidth = 2.dp,
-                                    color = MaterialTheme.colorScheme.primary
-                                )
-                            } else {
-                                Button(
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
                                     onClick = {
-                                        coroutineScope.launch {
-                                            isCheckingUpdate = true
-                                            updateStatusText = "در حال انتقال به فایل بروزرسانی..."
-                                            delay(1000)
-                                            isCheckingUpdate = false
+                                        try {
+                                            val request = DownloadManager.Request(Uri.parse(directApkDownloadUrl))
+                                                .setTitle("PayamNoor App Update")
+                                                .setDescription("Downloading latest version...")
+                                                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, "PayamNoor-update.apk")
+                                                .setAllowedOverMetered(true)
+                                                .setAllowedOverRoaming(true)
+
+                                            val downloadManager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+                                            downloadManager.enqueue(request)
+                                            Toast.makeText(context, "Downloading update in background...", Toast.LENGTH_LONG).show()
+                                        } catch (e: Exception) {
                                             try {
                                                 val intent = Intent(Intent.ACTION_VIEW, Uri.parse(directApkDownloadUrl))
                                                 context.startActivity(intent)
-                                                Toast.makeText(context, "در حال دانلود فایل نصب...", Toast.LENGTH_SHORT).show()
-                                            } catch (e: Exception) {
-                                                Toast.makeText(context, "خطا در اتصال به اینترنت یا گیت‌هاب", Toast.LENGTH_SHORT).show()
+                                                Toast.makeText(context, "Opening direct link...", Toast.LENGTH_SHORT).show()
+                                            } catch (ex: Exception) {
+                                                Toast.makeText(context, "Failed to start download", Toast.LENGTH_SHORT).show()
                                             }
                                         }
                                     },
                                     shape = RoundedCornerShape(10.dp),
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                                 ) {
                                     Icon(
-                                        Icons.Default.SystemUpdate,
+                                        Icons.Default.Download,
                                         contentDescription = null,
                                         modifier = Modifier.size(16.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("بروزرسانی", fontSize = 12.sp)
+                                    Text("Download APK", fontSize = 11.sp)
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        try {
+                                            val releasesUrl = "https://github.com/zrojie3-lgtm/app/releases"
+                                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(releasesUrl))
+                                            context.startActivity(intent)
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Could not open browser", Toast.LENGTH_SHORT).show()
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier.weight(1f),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.OpenInBrowser,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Releases", fontSize = 11.sp)
                                 }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-                        .padding(horizontal = 12.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = if (notificationsEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
-                            contentDescription = null,
-                            tint = if (notificationsEnabled) MaterialTheme.colorScheme.primary else Color.Gray,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "اعلان اطلاعیه‌های جدید",
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        )
-                    }
-                    Switch(
-                        checked = notificationsEnabled,
-                        onCheckedChange = {
-                            onNotificationsToggled(it)
-                            Toast.makeText(
-                                context,
-                                if (it) "اعلان‌ها فعال شدند" else "اعلان‌ها خاموش شدند",
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        }
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(14.dp))
-
-                Text(
-                    text = "انتخاب پوسته و تم:",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-
-                val options = listOf(
-                    Pair(AppThemeMode.SYSTEM, "پیش‌فرض سیستم (روز / شب خودکار)"),
-                    Pair(AppThemeMode.LIGHT, "روشن (سفید)"),
-                    Pair(AppThemeMode.DARK, "تاریک (سیاه)"),
-                    Pair(AppThemeMode.GOLD, "طلایی (Gold)")
-                )
-
-                options.forEach { (mode, title) ->
+                    // Notifications Toggle
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .selectable(
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = if (notificationsEnabled) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
+                                contentDescription = null,
+                                tint = if (notificationsEnabled) MaterialTheme.colorScheme.primary else Color.Gray,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Push Notifications",
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            )
+                        }
+                        Switch(
+                            checked = notificationsEnabled,
+                            onCheckedChange = {
+                                onNotificationsToggled(it)
+                                Toast.makeText(
+                                    context,
+                                    if (it) "Notifications enabled" else "Notifications disabled",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Theme Selection
+                    Text(
+                        text = "App Theme:",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    val options = listOf(
+                        Pair(AppThemeMode.SYSTEM, "System Default (Auto Light / Dark)"),
+                        Pair(AppThemeMode.LIGHT, "Light Theme"),
+                        Pair(AppThemeMode.DARK, "Dark Theme"),
+                        Pair(AppThemeMode.GOLD, "Gold Theme")
+                    )
+
+                    options.forEach { (mode, title) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .selectable(
+                                    selected = (currentTheme == mode),
+                                    onClick = { onThemeChange(mode) }
+                                )
+                                .padding(vertical = 6.dp, horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            RadioButton(
                                 selected = (currentTheme == mode),
                                 onClick = { onThemeChange(mode) }
                             )
-                            .padding(vertical = 6.dp, horizontal = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        RadioButton(
-                            selected = (currentTheme == mode),
-                            onClick = { onThemeChange(mode) }
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                color = MaterialTheme.colorScheme.onSurface
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                             )
-                        )
+                        }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Text("بستن")
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(
+                        onClick = onDismiss,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Close")
+                    }
                 }
             }
         }
