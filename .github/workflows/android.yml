@@ -29,8 +29,13 @@ jobs:
     - name: Build Debug APK
       run: gradle assembleDebug --stacktrace
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+    - name: Create releases folder and move APK
+      run: |
+        mkdir -p releases
+        cp app/build/outputs/apk/debug/*.apk releases/app-debug.apk
+
+    - name: Commit and push APK to repository
+      uses: stefanzweifel/git-auto-commit-action@v5
       with:
-        name: app-debug
-        path: app/build/outputs/apk/debug/*.apk
+        commit_message: "Auto-update built APK [skip ci]"
+        file_pattern: "releases/*.apk"
