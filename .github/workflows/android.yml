@@ -36,12 +36,15 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew || true
 
-    - name: Build Debug APK
-      run: ./gradlew assembleDebug --stacktrace || gradle assembleDebug --stacktrace
+    - name: Clean & Build Debug APK
+      run: |
+        ./gradlew clean --no-daemon
+        ./gradlew assembleDebug --no-daemon --stacktrace
 
     - name: Prepare APK Files
       run: |
         mkdir -p apk
+        rm -f apk/*.apk
         cp app/build/outputs/apk/debug/*.apk apk/app-latest.apk
 
     - name: Commit and Push APK directly into Repo
@@ -49,15 +52,15 @@ jobs:
         git config --global user.name "github-actions[bot]"
         git config --global user.email "github-actions[bot]@users.noreply.github.com"
         git add apk/app-latest.apk
-        git commit -m "Auto-update: Latest APK build" || echo "No changes to commit"
+        git commit -m "Auto-update: Latest APK build (Run ${{ github.run_number }})" || echo "No changes to commit"
         git push origin HEAD:${{ github.ref_name }}
 
     - name: Publish to GitHub Releases
       uses: softprops/action-gh-release@v2
       with:
         files: apk/app-latest.apk
-        tag_name: "v${{ github.run_number }}"
-        name: "Release v${{ github.run_number }}"
+        tag_name: "v2.4.${{ github.run_number }}"
+        name: "Release v2.4.${{ github.run_number }}"
         draft: false
         prerelease: false
       env:
