@@ -849,8 +849,19 @@ fun SettingsDialog(
 
 @Composable
 fun HeaderBar(onSettingsClicked: () -> Unit) {
+    val context = LocalContext.current
     var shamsiDate by remember { mutableStateOf("") }
     var tehranTime by remember { mutableStateOf("") }
+
+    // دریافت خودکار نسخه برنامه از سیستم
+    val appVersionName = remember {
+        try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "2.4.0"
+        } catch (e: Exception) {
+            "2.4.0"
+        }
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -892,14 +903,32 @@ fun HeaderBar(onSettingsClicked: () -> Unit) {
                     }
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
-                        Text(
-                            text = "پیام نور",
-                            style = MaterialTheme.typography.titleMedium.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface,
-                                fontSize = 18.sp
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "پیام نور",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    fontSize = 18.sp
+                                )
                             )
-                        )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Surface(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                shape = RoundedCornerShape(100.dp),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+                            ) {
+                                Text(
+                                    text = "نسخه $appVersionName".toPersianDigits(),
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontSize = 10.sp
+                                    ),
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = shamsiDate,
